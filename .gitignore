@@ -41,3 +41,4 @@ apps/android/local.properties
 apps/android/.idea/
 *.jks
 *.keystore
+.venv/
