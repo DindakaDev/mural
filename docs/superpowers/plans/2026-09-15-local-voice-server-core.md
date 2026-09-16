@@ -1112,17 +1112,38 @@ git commit -m "Add InputPipeline: audio frames to transcribed turns"
 ```python
 # tests/serverlocal/test_session.py
 import asyncio
+import fractions
 
+import av
 import numpy as np
 from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc.mediastreams import MediaStreamTrack
 
 from serverlocal import events, models, ollama_client, session as session_module
 from serverlocal.session import LiveSessionBody, Session, build_input_pipeline, create_live_session, run_response_turn
 
 
+class _SilentMicTrack(MediaStreamTrack):
+    """Minimal fake microphone track so test offers include an audio
+    m-line, matching real Android clients (LiveTransport.kt adds its
+    local track before calling createOffer -- see LiveTransport.kt:274)."""
+
+    kind = "audio"
+
+    async def recv(self):
+        samples = np.zeros((1, 320), dtype=np.int16)
+        frame = av.AudioFrame.from_ndarray(samples, format="s16", layout="mono")
+        frame.sample_rate = 16000
+        frame.pts = 0
+        frame.time_base = fractions.Fraction(1, 16000)
+        await asyncio.sleep(0.02)
+        return frame
+
+
 def test_create_live_session_returns_a_valid_answer():
     async def scenario():
         client_pc = RTCPeerConnection()
+        client_pc.addTrack(_SilentMicTrack())
         client_pc.createDataChannel("oai-events")
         offer = await client_pc.createOffer()
         await client_pc.setLocalDescription(offer)
@@ -1144,6 +1165,7 @@ def test_create_live_session_returns_a_valid_answer():
 def test_session_emits_created_then_started_when_channel_opens():
     async def scenario():
         client_pc = RTCPeerConnection()
+        client_pc.addTrack(_SilentMicTrack())
         channel = client_pc.createDataChannel("oai-events")
         received = []
         opened = asyncio.Event()
