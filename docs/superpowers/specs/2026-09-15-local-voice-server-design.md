@@ -119,8 +119,12 @@ to transport.
   conversation history, current language, references to the running
   `InputPipeline`/`ResponsePipeline` tasks, and a monotonic start time for
   `usage.seconds`.
-- Emits `mural.session.created` then, once the data channel opens and the
-  first `session.instructions.append` (greeting) is processed, `session.started`.
+- Emits `mural.session.created` right after the session object is built,
+  then `session.started` as soon as the data channel's `readyState`
+  becomes `open`. The client waits for `session.started` before sending
+  its first `session.instructions.append` (the greeting) — see
+  `MuralViewModel.kt:738-741` — so the server must not wait for that
+  message before emitting `session.started`.
 
 ### InputPipeline (per session)
 - Receives frames from the client's incoming `MediaStreamTrack` (aiortc
