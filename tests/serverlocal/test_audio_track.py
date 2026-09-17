@@ -121,3 +121,31 @@ def test_recv_paces_frames_against_wall_clock():
     # of real pacing should have elapsed. Generous lower bound to avoid
     # flakiness while still proving pacing (not instant return) happens.
     assert elapsed > 0.1
+
+
+def test_recv_repaces_after_a_gap_between_bursts():
+    # A real turn boundary (or a future barge-in clear()) leaves the
+    # queue empty for a while. When more audio arrives afterward, recv()
+    # must re-anchor its pacing to wall clock instead of replaying the
+    # new burst instantly to "catch up" to the now-stale old anchor.
+    track = OutputAudioTrack()
+    sample_rate = 16000
+    samples = np.full(sample_rate // 5, 1000, dtype=np.int16)  # 200ms -> 10 frames
+
+    async def scenario():
+        import time
+
+        await track.push_pcm(samples, sample_rate=sample_rate)
+        for _ in range(10):
+            await track.recv()
+
+        await asyncio.sleep(0.3)  # simulate a silent gap between turns
+
+        await track.push_pcm(samples, sample_rate=sample_rate)
+        start = time.time()
+        for _ in range(10):
+            await track.recv()
+        return time.time() - start
+
+    elapsed = asyncio.run(scenario())
+    assert elapsed > 0.1

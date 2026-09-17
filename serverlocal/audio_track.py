@@ -60,15 +60,25 @@ class OutputAudioTrack(MediaStreamTrack):
         frame.time_base = fractions.Fraction(1, frame.sample_rate)
         self._timestamp += frame.samples
 
+        now = time.monotonic()
         if self._start is None:
             # First frame goes out immediately; every later frame is
             # paced against this reference point so the whole track's
             # timeline tracks the wall clock instead of the queue's
             # arrival times.
-            self._start = time.time()
+            self._start = now
         else:
-            wait = self._start + (self._timestamp / frame.sample_rate) - time.time()
-            if wait > 0:
-                await asyncio.sleep(wait)
+            # A gap with nothing queued (a turn boundary, a future
+            # barge-in clear()) leaves _start behind wall clock. Without
+            # re-anchoring, every frame pushed after the gap computes a
+            # `wait` that's already in the past and gets released
+            # instantly -- an unpaced burst instead of real-time audio.
+            # max() only ever moves the anchor forward, so a track that's
+            # still on pace is untouched.
+            self._start = max(self._start, now - self._timestamp / frame.sample_rate)
+
+        wait = self._start + (self._timestamp / frame.sample_rate) - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
 
         return frame
