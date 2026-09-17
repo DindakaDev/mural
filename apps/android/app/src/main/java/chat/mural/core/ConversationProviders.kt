@@ -5,7 +5,7 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 
 /** Choice is explicit. An unavailable provider never authorizes use of the other one. */
-enum class ConversationProvider { PERSONAL_KEY, HOSTED_MINUTES }
+enum class ConversationProvider { PERSONAL_KEY, HOSTED_MINUTES, LOCAL_SERVER }
 
 data class HostedReadiness(val accountID: String? = null, val availableMilliseconds: Long = 0,
     val enabled: Boolean = false, val checking: Boolean = false) {
@@ -19,8 +19,12 @@ object ConversationProviderPolicy {
         if (session.id in hostedIDs) tickets.filterNot { it.sessionID == session.id }
         else if (session.endedAt != null) FinalAssessmentRecovery.enqueue(session, tickets) else tickets
 
-    fun canStart(choice: ConversationProvider, hasKey: Boolean, hosted: HostedReadiness): Boolean =
-        when (choice) { ConversationProvider.PERSONAL_KEY -> hasKey; ConversationProvider.HOSTED_MINUTES -> hosted.ready }
+    fun canStart(choice: ConversationProvider, hasKey: Boolean, hosted: HostedReadiness, hasLocalServer: Boolean = false): Boolean =
+        when (choice) {
+            ConversationProvider.PERSONAL_KEY -> hasKey
+            ConversationProvider.LOCAL_SERVER -> hasLocalServer
+            ConversationProvider.HOSTED_MINUTES -> hosted.ready
+        }
 }
 
 /** The same short, valid message history can be passed to either voice provider. */

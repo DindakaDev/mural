@@ -29,6 +29,13 @@ class ConversationProvidersTest {
             assertFalse(ConversationProviderPolicy.canStart(ConversationProvider.HOSTED_MINUTES, true, invalid))
     }
 
+    @Test fun localServerCanStartOnlyWhenAnAddressIsSaved() {
+        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, false, HostedReadiness(), true))
+        assertFalse(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, false, HostedReadiness(), false))
+        // hasKey/hosted readiness are irrelevant to this provider's own gate.
+        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, true, HostedReadiness("owner", 0, false), true))
+    }
+
     @Test fun acknowledgedGuestRecoveryDetachesOnlyThatOwnersLeasesAndCannotReuseThemForMember() = runTest {
         var guestCalls = 0; var memberCalls = 0; var guestCloses = 0
         val controller = HostedConversationBindings(backgroundScope)
