@@ -108,41 +108,46 @@ apps/android/app/src/androidTest/java/chat/mural/network/
 
 **Interfaces:**
 - Produces: `enum class ConversationProvider { PERSONAL_KEY, HOSTED_MINUTES, LOCAL_SERVER }`,
-  `ConversationProviderPolicy.canStart(choice: ConversationProvider, hasKey: Boolean, hasLocalServer: Boolean, hosted: HostedReadiness): Boolean`
-  (note: `hasLocalServer` is inserted as the 3rd parameter, before `hosted` —
-  every existing call site needs a new argument, not just an appended one).
+  `ConversationProviderPolicy.canStart(choice: ConversationProvider, hasKey: Boolean, hosted: HostedReadiness, hasLocalServer: Boolean = false): Boolean`
+  (note: `hasLocalServer` is appended LAST, after the existing `hosted`
+  parameter, with a default of `false` — this is deliberate: it's the only
+  shape that leaves `MuralViewModel.kt:639`'s existing 3-argument call
+  site, `canStart(choice, hasKey, hostedReadiness)`, still compiling
+  unchanged. Positional arguments bind left-to-right; a default in the
+  middle of a positional call does NOT get skipped over to reach a later
+  required parameter, so `hasLocalServer` must go after `hosted`, not
+  before it. Without this, the whole module fails to compile between this
+  task and Task 4 — which would break Tasks 2 and 3's
+  `./gradlew testDebugUnitTest` runs too, since Gradle compiles the
+  entire module before running any test in it, regardless of which file
+  the test targets. Task 4 updates the real call site to pass the actual
+  value once `hasLocalServer` state exists on the ViewModel.)
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `ConversationProvidersTest.kt`, and update the existing test's 5
-call sites to pass a `hasLocalServer` argument (use `false` for the
-existing assertions — they're not about local-server behavior — and add
-one new assertion pair for `LOCAL_SERVER` itself):
+The existing test's 5 `canStart` call sites in
+`selectionNeverFallsBackBetweenPersonalKeyAndHosted` need NO changes —
+they already pass exactly 3 positional arguments (`choice, hasKey,
+hosted`), which still matches the first 3 parameters of the new
+signature; `hasLocalServer` defaults to `false` for all of them, which is
+correct (none of those assertions are about local-server behavior). Add
+only this new test:
 
 ```kotlin
-    @Test fun selectionNeverFallsBackBetweenPersonalKeyAndHosted() {
-        val ready = HostedReadiness("owner", 1, true)
-        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.PERSONAL_KEY, true, false, HostedReadiness()))
-        assertFalse(ConversationProviderPolicy.canStart(ConversationProvider.PERSONAL_KEY, false, false, ready))
-        assertFalse(ConversationProviderPolicy.canStart(ConversationProvider.HOSTED_MINUTES, true, false, HostedReadiness()))
-        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.HOSTED_MINUTES, false, false, ready))
-        for (invalid in listOf(ready.copy(accountID = null), ready.copy(availableMilliseconds = 0), ready.copy(enabled = false), ready.copy(checking = true)))
-            assertFalse(ConversationProviderPolicy.canStart(ConversationProvider.HOSTED_MINUTES, true, false, invalid))
-    }
-
     @Test fun localServerCanStartOnlyWhenAnAddressIsSaved() {
-        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, false, true, HostedReadiness()))
-        assertFalse(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, false, false, HostedReadiness()))
+        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, false, HostedReadiness(), true))
+        assertFalse(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, false, HostedReadiness(), false))
         // hasKey/hosted readiness are irrelevant to this provider's own gate.
-        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, true, true, HostedReadiness("owner", 0, false)))
+        assertTrue(ConversationProviderPolicy.canStart(ConversationProvider.LOCAL_SERVER, true, HostedReadiness("owner", 0, false), true))
     }
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cd apps/android && ./gradlew testDebugUnitTest --tests "chat.mural.core.ConversationProvidersTest"`
-Expected: FAIL — compile error, `canStart` doesn't accept 4 arguments yet
-and `ConversationProvider.LOCAL_SERVER` doesn't exist.
+Expected: FAIL — compile error, `ConversationProvider.LOCAL_SERVER`
+doesn't exist yet (the existing 5 assertions are unaffected by this
+change and would compile fine on their own; the new test is what fails).
 
 - [ ] **Step 3: Update `ConversationProviders.kt`**
 
@@ -152,7 +157,7 @@ enum class ConversationProvider { PERSONAL_KEY, HOSTED_MINUTES, LOCAL_SERVER }
 ```
 
 ```kotlin
-    fun canStart(choice: ConversationProvider, hasKey: Boolean, hasLocalServer: Boolean, hosted: HostedReadiness): Boolean =
+    fun canStart(choice: ConversationProvider, hasKey: Boolean, hosted: HostedReadiness, hasLocalServer: Boolean = false): Boolean =
         when (choice) {
             ConversationProvider.PERSONAL_KEY -> hasKey
             ConversationProvider.LOCAL_SERVER -> hasLocalServer
@@ -647,7 +652,7 @@ In `MuralViewModel.kt:653`, change the `if/else` to a `when` — the
 Also update `start()`'s existing call to `ConversationProviderPolicy.canStart` (a few lines earlier in the same function) to pass `hasLocalServer`:
 
 ```kotlin
-        if (!ConversationProviderPolicy.canStart(choice, hasKey, hasLocalServer, hostedReadiness)) {
+        if (!ConversationProviderPolicy.canStart(choice, hasKey, hostedReadiness, hasLocalServer)) {
 ```
 
 - [ ] **Step 9: Run the full existing test suite**
@@ -900,8 +905,8 @@ git commit -m "Add Local server settings row and dialog"
   `MuralViewModel`'s provider switch (Task 4), and the `cloudReady()` gate
   (Task 4). The `teaching()`/`/responses` gap the spec didn't mention is
   also covered (Task 4, Step 6).
-- **Type consistency checked:** `canStart`'s new parameter order
-  (`choice, hasKey, hasLocalServer, hosted`) is used identically in
+- **Type consistency checked:** `canStart`'s parameter order
+  (`choice, hasKey, hosted, hasLocalServer = false`) is used identically in
   Task 1's test file and Task 4's `start()` call site.
   `parseLocalServerUrl`'s `HttpUrl?` return type is consumed identically
   by `localApiClient()` (Task 4) and `saveLocalServerAddress()` (Task 4) —
