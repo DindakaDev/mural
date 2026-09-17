@@ -1,3 +1,7 @@
+# Known install-time constraints (not enforced here to keep this list matching
+# the original spec verbatim; apply manually if `pip install -r requirements.txt` fails):
+#   setuptools<81   — required for webrtcvad's pkg_resources shim to keep working
+#   cryptography<49 — needed on some Intel/arm64 toolchains during aiortc's build
 fastapi
 uvicorn[standard]
 websockets
