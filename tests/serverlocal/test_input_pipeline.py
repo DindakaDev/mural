@@ -23,18 +23,18 @@ def test_handle_frame_transcribes_closed_turn_and_reports_it(monkeypatch):
 
     def fake_transcribe(audio_np):
         captured_audio["array"] = audio_np
-        return "hola de prueba"
+        return "hola de prueba", "es"
 
     turns = []
 
-    def on_turn_transcribed(text, start_ms, end_ms):
-        turns.append((text, start_ms, end_ms))
+    def on_turn_transcribed(text, language, start_ms, end_ms):
+        turns.append((text, language, start_ms, end_ms))
 
     pipeline = InputPipeline(fake_transcribe, on_turn_transcribed)
     for _ in range(len(pattern)):
         pipeline.handle_frame(_silence_frame())
 
-    assert turns == [("hola de prueba", 0, len(pattern) * 20)]
+    assert turns == [("hola de prueba", "es", 0, len(pattern) * 20)]
     assert captured_audio["array"].dtype == np.float32
     assert captured_audio["array"].max() <= 1.0
     assert captured_audio["array"].min() >= -1.0
@@ -44,7 +44,7 @@ def test_handle_frame_does_not_call_transcribe_without_a_closed_turn(monkeypatch
     monkeypatch.setattr(webrtcvad.Vad, "is_speech", lambda self, frame, rate: False)
 
     calls = []
-    pipeline = InputPipeline(lambda a: calls.append(a) or "x", lambda *a: None)
+    pipeline = InputPipeline(lambda a: (calls.append(a) or "x", "en"), lambda *a: None)
     for _ in range(10):
         pipeline.handle_frame(_silence_frame())
 
@@ -57,7 +57,7 @@ def test_handle_frame_skips_on_turn_callback_for_blank_transcription(monkeypatch
     monkeypatch.setattr(webrtcvad.Vad, "is_speech", lambda self, frame, rate: next(calls))
 
     turns = []
-    pipeline = InputPipeline(lambda a: "   ", lambda *a: turns.append(a))
+    pipeline = InputPipeline(lambda a: ("   ", "en"), lambda *a: turns.append(a))
     for _ in range(len(pattern)):
         pipeline.handle_frame(_silence_frame())
 

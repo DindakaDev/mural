@@ -98,11 +98,15 @@ def load_models() -> None:
     print("Modelos listos.")
 
 
-def transcribe(audio: np.ndarray) -> str:
-    """audio: float32 PCM in [-1, 1], 16kHz mono."""
+def transcribe(audio: np.ndarray) -> tuple[str, str]:
+    """audio: float32 PCM in [-1, 1], 16kHz mono.
+
+    Returns (text, language) where language is Whisper's detected
+    language code (e.g. "es", "en")."""
     assert stt_model is not None, "load_models() must run before transcribe()"
-    segments, _info = stt_model.transcribe(audio)
-    return " ".join(segment.text for segment in segments).strip()
+    segments, info = stt_model.transcribe(audio)
+    text = " ".join(segment.text for segment in segments).strip()
+    return text, info.language
 
 
 def synthesize(text: str, voice: str, lang: str, speed: float = 1.0) -> tuple[np.ndarray, int]:

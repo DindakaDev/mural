@@ -13,8 +13,8 @@ class InputPipeline:
 
     def __init__(
         self,
-        transcribe_fn: Callable[[np.ndarray], str],
-        on_turn_transcribed: Callable[[str, int, int], None],
+        transcribe_fn: Callable[[np.ndarray], tuple[str, str]],
+        on_turn_transcribed: Callable[[str, str, int, int], None],
     ):
         self._transcribe = transcribe_fn
         self._on_turn = on_turn_transcribed
@@ -36,6 +36,7 @@ class InputPipeline:
                 end_ms = self._elapsed_ms
                 self._turn_start_ms = None
                 audio_np = np.frombuffer(closed_turn, dtype=np.int16).astype(np.float32) / 32768.0
-                text = self._transcribe(audio_np).strip()
+                text, language = self._transcribe(audio_np)
+                text = text.strip()
                 if text:
-                    self._on_turn(text, start_ms, end_ms)
+                    self._on_turn(text, language, start_ms, end_ms)
