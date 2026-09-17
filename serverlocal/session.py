@@ -61,7 +61,10 @@ async def run_response_turn(session: Session, user_text: str) -> None:
         session.send(events.transcript_delta("output", text, start_ms, end_ms))
 
     pipeline = ResponsePipeline(stream_reply_fn, synthesize_fn, push_audio_fn, on_output_delta)
-    await pipeline.run(user_text)
+    try:
+        await pipeline.run(user_text)
+    except Exception as exc:
+        session.send(events.error(str(exc)))
 
 
 async def create_live_session(body: LiveSessionBody) -> dict:

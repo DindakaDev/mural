@@ -122,3 +122,27 @@ def test_run_response_turn_sends_output_deltas_and_pushes_audio(monkeypatch):
     assert pushed == [(1600, 16000)]
     assert [event["type"] for event in sent] == ["session.output_transcript.delta"]
     assert sent[0]["delta"] == "Hola mundo."
+
+
+def test_run_response_turn_sends_error_event_when_ollama_raises(monkeypatch):
+    def _raise(prompt):
+        raise RuntimeError("ollama unreachable")
+
+    monkeypatch.setattr(ollama_client, "stream_reply", _raise)
+
+    sent = []
+    session = Session(pc=None)
+    session.send = sent.append  # type: ignore[assignment]
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            raise AssertionError("push_pcm should not be called when stream_reply raises")
+
+    session.output_track = FakeTrack()  # type: ignore[assignment]
+
+    # Should not raise -- the exception must be caught and reported via
+    # an error event instead of propagating out of the turn.
+    asyncio.run(run_response_turn(session, "hola"))
+
+    assert len(sent) == 1
+    assert sent[0] == events.error("ollama unreachable")
