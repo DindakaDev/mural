@@ -19,6 +19,8 @@
     <string name="error_resolve_local_history_first">Resolve the local history error first.</string>
     <string name="error_accept_ai_consent">Accept OpenAI use in Settings before you begin.</string>
     <string name="error_missing_key">Add your OpenAI key in Settings to begin.</string>
+    <string name="error_missing_local_server">Add your local server address in Settings to begin.</string>
+    <string name="error_invalid_local_server">Enter a valid address, like 192.168.1.20:8000.</string>
     <string name="error_key_invalid">Enter a valid OpenAI API key.</string>
     <string name="error_key_save">The key couldn\'t be saved securely on this device.</string>
     <string name="error_key_save_failed">The key couldn\'t be saved.</string>
@@ -52,6 +54,7 @@
     <!-- Notices -->
     <string name="notice_invalid_voice_update">An invalid voice update was received.</string>
     <string name="notice_key_saved">Saved securely. Start a conversation to connect.</string>
+    <string name="notice_local_server_saved">Local server address saved.</string>
     <string name="notice_help_simpler">Mural will make that a little simpler.</string>
     <string name="notice_update_send_failed">A conversation update couldn\'t be sent. You can keep speaking.</string>
     <string name="notice_voice_update_rejected">A voice update was rejected. If Mural stops responding, end this conversation and start again.</string>
@@ -208,6 +211,16 @@
     <string name="settings_key_dialog_title">OpenAI API key</string>
     <string name="settings_key_dialog_note">Stored encrypted by Android and never included in backups.</string>
     <string name="settings_key_dialog_field_label">New key</string>
+    <string name="settings_local_server_title">Local server</string>
+    <string name="settings_local_server_footer">Connect to a Whisper/Ollama/Kokoro server on your own network instead of OpenAI.</string>
+    <string name="settings_local_server_add">Add server address</string>
+    <string name="settings_local_server_change">Change server address</string>
+    <string name="settings_local_server_remove">Remove server address</string>
+    <string name="settings_delete_local_server_confirm_title">Remove the local server address?</string>
+    <string name="settings_delete_local_server_confirm_message">You\'ll need to add it again to use local mode.</string>
+    <string name="settings_local_server_dialog_title">Local server address</string>
+    <string name="settings_local_server_dialog_note">Stored on this device only, not encrypted -- this isn\'t a secret, just an address on your network.</string>
+    <string name="settings_local_server_dialog_field_label">Host:port</string>
     <string name="settings_backup_exported_toast">Backup exported</string>
     <string name="settings_backup_imported_toast">Backup imported</string>
 

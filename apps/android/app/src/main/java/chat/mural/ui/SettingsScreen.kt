@@ -71,7 +71,9 @@ fun SettingsScreen(vm: MuralViewModel, onExport: () -> Unit, onImport: () -> Uni
                    onAccount: (() -> Unit)? = null, onDismiss: () -> Unit = {}) {
     var advanced by rememberSaveable { mutableStateOf(false) }
     var keyDialog by rememberSaveable { mutableStateOf(false) }
+    var localServerDialog by rememberSaveable { mutableStateOf(false) }
     var deleteKey by rememberSaveable { mutableStateOf(false) }
+    var deleteLocalServer by rememberSaveable { mutableStateOf(false) }
     var deleteAll by rememberSaveable { mutableStateOf(false) }
     var permissionDetails by rememberSaveable { mutableStateOf(false) }
     var revokeConsent by rememberSaveable { mutableStateOf(false) }
@@ -148,6 +150,22 @@ fun SettingsScreen(vm: MuralViewModel, onExport: () -> Unit, onImport: () -> Uni
                 }
             }
             item {
+                SettingsGroup(stringResource(R.string.settings_local_server_title),
+                    stringResource(R.string.settings_local_server_footer)) {
+                    SettingsRow(stringResource(if (vm.hasLocalServer) R.string.settings_local_server_change else R.string.settings_local_server_add),
+                        enabled = !vm.isRunning, tint = MuralColors.Secondary, chevron = true,
+                        modifier = Modifier.testTag("advanced-local-server"), onClick = { localServerDialog = true })
+                    if (vm.hasLocalServer) {
+                        SettingsDivider()
+                        Text(vm.localServerAddress, style = MaterialTheme.typography.bodySmall,
+                            color = MuralColors.Secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                        SettingsDivider()
+                        SettingsRow(stringResource(R.string.settings_local_server_remove), enabled = !vm.isRunning,
+                            tint = MuralColors.Red, onClick = { deleteLocalServer = true })
+                    }
+                }
+            }
+            item {
                 val usage = UsageSummary.of(vm.archive.sessions)
                 SettingsGroup(stringResource(R.string.settings_keep_comfortable), stringResource(R.string.settings_usage_footer)) {
                     val limits = (listOf(5, 10, 15, 20, 30, 60) + prefs.sessionMinutes).distinct().sorted()
@@ -214,6 +232,7 @@ fun SettingsScreen(vm: MuralViewModel, onExport: () -> Unit, onImport: () -> Uni
     }
 
     if (keyDialog) KeyDialog(vm, onDismiss = { keyDialog = false })
+    if (localServerDialog) LocalServerDialog(vm, onDismiss = { localServerDialog = false })
     if (notices) NoticesDialog(onDismiss = { notices = false })
     if (history) SettingsHistorySheet(vm, onDismiss = { history = false }, onSelect = { transcript = it }, onDelete = { deleteSession = it })
     if (permissionDetails) AlertDialog(onDismissRequest = { permissionDetails = false },
@@ -233,6 +252,9 @@ fun SettingsScreen(vm: MuralViewModel, onExport: () -> Unit, onImport: () -> Uni
     if (deleteKey) ConfirmDialog(stringResource(R.string.settings_delete_key_confirm_title), stringResource(R.string.settings_delete_key_confirm_message), stringResource(R.string.common_delete), {
         vm.deleteKey(); deleteKey = false
     }, { deleteKey = false })
+    if (deleteLocalServer) ConfirmDialog(stringResource(R.string.settings_delete_local_server_confirm_title), stringResource(R.string.settings_delete_local_server_confirm_message), stringResource(R.string.common_delete), {
+        vm.removeLocalServerAddress(); deleteLocalServer = false
+    }, { deleteLocalServer = false })
     if (deleteAll) ConfirmDialog(stringResource(R.string.settings_delete_all_confirm_title), stringResource(R.string.settings_delete_all_confirm_message), stringResource(R.string.settings_delete_all_confirm_button), {
         vm.deleteLearningData(); deleteAll = false
     }, { deleteAll = false })
@@ -303,6 +325,31 @@ private fun KeyDialog(vm: MuralViewModel, onDismiss: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     MuralTextButton(onClick = { key = ""; onDismiss() }) { Text(stringResource(R.string.common_cancel)) }
                     Button(onClick = { vm.saveKey(key.trim()); key = ""; onDismiss() }, enabled = key.isNotBlank()) { Text(stringResource(R.string.common_save)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalServerDialog(vm: MuralViewModel, onDismiss: () -> Unit) {
+    var address by remember { mutableStateOf(vm.localServerAddress) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(28.dp), color = MuralColors.Surface) {
+            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+                Text(stringResource(R.string.settings_local_server_dialog_title), style = MaterialTheme.typography.headlineMedium)
+                Text(stringResource(R.string.settings_local_server_dialog_note), color = MuralColors.Secondary)
+                MuralTextField(
+                    address,
+                    { address = it.take(200) },
+                    Modifier.fillMaxWidth().testTag("local-server-input"),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                    label = { Text(stringResource(R.string.settings_local_server_dialog_field_label)) },
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    MuralTextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+                    Button(onClick = { vm.saveLocalServerAddress(address); onDismiss() }, enabled = address.isNotBlank()) { Text(stringResource(R.string.common_save)) }
                 }
             }
         }

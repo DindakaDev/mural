@@ -19,6 +19,8 @@
     <string name="error_resolve_local_history_first">Primero resuelve el error del historial local.</string>
     <string name="error_accept_ai_consent">Acepta el uso de OpenAI en Ajustes antes de empezar.</string>
     <string name="error_missing_key">Añade tu clave de OpenAI en Ajustes para empezar.</string>
+    <string name="error_missing_local_server">Añade la dirección de tu servidor local en Ajustes para empezar.</string>
+    <string name="error_invalid_local_server">Ingresa una dirección válida, como 192.168.1.20:8000.</string>
     <string name="error_key_invalid">Introduce una clave de la API de OpenAI válida.</string>
     <string name="error_key_save">No se pudo guardar la clave de forma segura en este dispositivo.</string>
     <string name="error_key_save_failed">No se pudo guardar la clave.</string>
@@ -52,6 +54,7 @@
     <!-- Notices -->
     <string name="notice_invalid_voice_update">Se recibió una actualización de voz no válida.</string>
     <string name="notice_key_saved">Clave guardada en este dispositivo.</string>
+    <string name="notice_local_server_saved">Dirección del servidor local guardada.</string>
     <string name="notice_help_simpler">Vamos a hacerlo más sencillo.</string>
     <string name="notice_update_send_failed">No se pudo enviar una actualización. Puedes seguir hablando.</string>
     <string name="notice_voice_update_rejected">OpenAI rechazó una actualización de voz. Si deja de responder, reinicia la conversación.</string>
@@ -208,6 +211,16 @@
     <string name="settings_key_dialog_title">Clave de OpenAI</string>
     <string name="settings_key_dialog_note">Se guarda cifrada por Android y no forma parte de las copias.</string>
     <string name="settings_key_dialog_field_label">Nueva clave</string>
+    <string name="settings_local_server_title">Servidor local</string>
+    <string name="settings_local_server_footer">Conecta a un servidor Whisper/Ollama/Kokoro en tu propia red en vez de OpenAI.</string>
+    <string name="settings_local_server_add">Agregar dirección del servidor</string>
+    <string name="settings_local_server_change">Cambiar dirección del servidor</string>
+    <string name="settings_local_server_remove">Eliminar dirección del servidor</string>
+    <string name="settings_delete_local_server_confirm_title">¿Eliminar la dirección del servidor local?</string>
+    <string name="settings_delete_local_server_confirm_message">Tendrás que agregarla de nuevo para usar el modo local.</string>
+    <string name="settings_local_server_dialog_title">Dirección del servidor local</string>
+    <string name="settings_local_server_dialog_note">Se guarda solo en este dispositivo, sin cifrar: no es un secreto, es una dirección en tu red.</string>
+    <string name="settings_local_server_dialog_field_label">Host:puerto</string>
     <string name="settings_backup_exported_toast">Copia exportada</string>
     <string name="settings_backup_imported_toast">Copia importada</string>
 
