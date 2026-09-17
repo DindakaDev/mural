@@ -72,6 +72,8 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
     private var lookupJob: Job? = null
     var topicResult by mutableStateOf<TopicBrief?>(null); private set
     var hasKey by mutableStateOf(false); private set
+    var hasLocalServer by mutableStateOf(false); private set
+    var localServerAddress by mutableStateOf(""); private set
     val language get() = LanguageRegistry.get(archive.preferences.learningLanguageID)!!
     val learner get() = LearningEngine.project(archive.sessions, language.id, archive.preferences.hiddenWords)
     val isRunning get() = state in listOf("connecting", "active", "closing")
@@ -80,6 +82,7 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val repository = LearningRepository(application)
     private val credentials = CredentialStore(application)
+    private val localServerStore = LocalServerStore(application)
     private val api = APIClient(credentials)
     private val transport = LiveTransport(application, viewModelScope)
     private val providerStore = ConversationProviderStore(application)
@@ -166,7 +169,7 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         guests?.let { controller -> viewModelScope.launch { controller.state.collect { guestState = it } } }
         viewModelScope.launch {
             try {
-                val loaded = withContext(Dispatchers.IO) { repository.load() to credentials.hasKey }
+                val loaded = withContext(Dispatchers.IO) { Triple(repository.load(), credentials.hasKey, localServerStore.read()) }
                 archive = loaded.first.archive
                 val providers = providerStore.read(if (loaded.second) ConversationProvider.PERSONAL_KEY else ConversationProvider.HOSTED_MINUTES)
                 hostedSessionIDs = providers.hostedIDs
@@ -178,6 +181,8 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
                 conversationProvider = providers.selection
                 finalAssessmentTickets = ConversationProviderPolicy.recoveryTickets(loaded.first.finalAssessments, hostedSessionIDs)
                 hasKey = loaded.second
+                localServerAddress = loaded.third.orEmpty()
+                hasLocalServer = !loaded.third.isNullOrBlank()
                 storageReady = true
                 recoverFinalAssessments()
                 refreshHostedReadiness()
@@ -311,6 +316,9 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         if (!currentHosted && conversationProvider == ConversationProvider.PERSONAL_KEY && !hasKey) {
             presentError(getApplication<Application>().getString(R.string.error_missing_key), needsKeySetup = true); return false
         }
+        if (!currentHosted && conversationProvider == ConversationProvider.LOCAL_SERVER && !hasLocalServer) {
+            presentError(getApplication<Application>().getString(R.string.error_missing_local_server)); return false
+        }
         return true
     }
     /** Called by the minutes/account UI after an explicit provider choice. No failure changes it. */
@@ -424,6 +432,10 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         val config = hostedConfiguration ?: throw HostedFailure.Unavailable
         return HostedAPIClient(config.origin, { requireHostedOwner(ownerID) }, okhttp3.OkHttpClient())
     }
+    private fun localApiClient(): APIClient {
+        val url = parseLocalServerUrl(localServerAddress) ?: throw APIClient.APIException.InvalidResponse
+        return APIClient.local(url)
+    }
     private fun binding(lease: HostedAPIClient.HostedLease) = HostedConversationBindings.Lease(
         lease.sessionID, lease.teaching, lease::requestClose, lease::status, lease.deadlineMilliseconds)
 
@@ -434,7 +446,7 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         if (localID != null && localID in hostedSessionIDs) {
             return hostedBindings.respond(localID, purpose, logicalID, instructions, input, schema, search)
         }
-        if (localID == null && conversationProvider == ConversationProvider.HOSTED_MINUTES) throw HostedFailure.Unavailable
+        if (localID == null && (conversationProvider == ConversationProvider.HOSTED_MINUTES || conversationProvider == ConversationProvider.LOCAL_SERVER)) throw HostedFailure.Unavailable
         return api.respond(instructions, input, schema, search, purpose)
     }
     private fun helperContext(snapshot: SessionRecord, passage: Passage? = null): String =
@@ -565,6 +577,24 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         catch (e: Exception) { presentError(e, R.string.error_key_delete_failed) }
         finally { hasKey = credentials.hasKey }
     }
+    fun saveLocalServerAddress(address: String) {
+        if (isRunning) return
+        val trimmed = address.trim()
+        if (parseLocalServerUrl(trimmed) == null) {
+            notice = getApplication<Application>().getString(R.string.error_invalid_local_server); return
+        }
+        localServerStore.save(trimmed)
+        localServerAddress = trimmed
+        hasLocalServer = true
+        selectConversationProvider(ConversationProvider.LOCAL_SERVER)
+        notice = getApplication<Application>().getString(R.string.notice_local_server_saved)
+    }
+    fun removeLocalServerAddress() {
+        if (isRunning) return
+        localServerStore.clear()
+        hasLocalServer = false
+        localServerAddress = ""
+    }
     fun updatePreferences(preferences: Preferences) {
         if (isRunning || !storageReady) return
         if (LanguageRegistry.get(preferences.learningLanguageID) == null || preferences.meaningLanguage !in MeaningLanguages.all || preferences.sessionMinutes !in 1..60) return
@@ -636,7 +666,7 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
             presentError(getApplication<Application>().getString(R.string.hosted_checking_previous))
             reconcileHostedSessions(); return
         }
-        if (!ConversationProviderPolicy.canStart(choice, hasKey, hostedReadiness)) {
+        if (!ConversationProviderPolicy.canStart(choice, hasKey, hostedReadiness, hasLocalServer)) {
             if (choice == ConversationProvider.HOSTED_MINUTES) {
                 showMinuteAccess = true; refreshHostedReadiness()
             } else presentError(getApplication<Application>().getString(R.string.error_missing_key), true)
@@ -650,27 +680,31 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         if (choice == ConversationProvider.HOSTED_MINUTES) accountChangeBlocked = true
         connectionJob = viewModelScope.launch {
             try {
-                val provider: LiveSessionProvider = if (choice == ConversationProvider.PERSONAL_KEY) api else {
-                    val owner = requireHostedOwner()
-                    if (selectedAccount.busy || owner.accountID != hostedReadiness.accountID) throw HostedFailure.SignInRequired
-                    val hosted = hostedClient(owner.accountID)
-                    val balance = hostedBalance(owner)
-                    if (!balance.canStartConversation || !hosted.available()) throw HostedFailure.Unavailable
-                    // Commit provider provenance and the unresolved-owner marker before making a paid create.
-                    hostedSessionIDs = hostedSessionIDs + id
-                    pendingHostedOwnerID = owner.accountID
-                    withContext(NonCancellable) { providerStore.markHosted(id, owner.accountID) }
-                    object : LiveSessionProvider {
-                        override suspend fun createLiveSession(request: LiveSessionRequest): LiveSessionConnection {
-                            val result = hosted.createLiveSession(request.copy(requestedMilliseconds = archive.preferences.sessionMinutes * 60_000L))
-                            val lease = result.lease as? HostedAPIClient.HostedLease ?: throw HostedFailure.InvalidResponse
-                            withContext(NonCancellable + Dispatchers.Main.immediate) {
-                                hostedBindings.bind(id, owner.accountID, binding(lease))
-                                if (session?.id != id || state != "connecting") {
-                                    hostedBindings.ended(id); reconcileHostedSessions()
+                val provider: LiveSessionProvider = when (choice) {
+                    ConversationProvider.PERSONAL_KEY -> api
+                    ConversationProvider.LOCAL_SERVER -> localApiClient()
+                    ConversationProvider.HOSTED_MINUTES -> {
+                        val owner = requireHostedOwner()
+                        if (selectedAccount.busy || owner.accountID != hostedReadiness.accountID) throw HostedFailure.SignInRequired
+                        val hosted = hostedClient(owner.accountID)
+                        val balance = hostedBalance(owner)
+                        if (!balance.canStartConversation || !hosted.available()) throw HostedFailure.Unavailable
+                        // Commit provider provenance and the unresolved-owner marker before making a paid create.
+                        hostedSessionIDs = hostedSessionIDs + id
+                        pendingHostedOwnerID = owner.accountID
+                        withContext(NonCancellable) { providerStore.markHosted(id, owner.accountID) }
+                        object : LiveSessionProvider {
+                            override suspend fun createLiveSession(request: LiveSessionRequest): LiveSessionConnection {
+                                val result = hosted.createLiveSession(request.copy(requestedMilliseconds = archive.preferences.sessionMinutes * 60_000L))
+                                val lease = result.lease as? HostedAPIClient.HostedLease ?: throw HostedFailure.InvalidResponse
+                                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                                    hostedBindings.bind(id, owner.accountID, binding(lease))
+                                    if (session?.id != id || state != "connecting") {
+                                        hostedBindings.ended(id); reconcileHostedSessions()
+                                    }
                                 }
+                                return result
                             }
-                            return result
                         }
                     }
                 }
