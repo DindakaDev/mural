@@ -47,6 +47,14 @@ class APIClientTest {
         }
         assertEquals(0,server.requestCount)
     }
+    @Test fun localModeSendsNoAuthorizationHeaderAndNeverThrowsMissingKey() = runBlocking {
+        val local = APIClient(null, OkHttpClient(), server.url("/v1/"), requiresAuth = false)
+        server.enqueue(MockResponse().setBody("""{"session":{"id":"local-1"},"transport":{"type":"webrtc","sdp":"v=0\\r\\n"}}"""))
+        val provider: LiveSessionProvider = local
+        provider.createLiveSession(LiveSessionRequest("v=0", "Teaching policy"))
+        val request = server.takeRequest()
+        assertNull(request.getHeader("Authorization"))
+    }
     @Test fun incompleteRefusalAndMalformedResultsDoNotBecomeReplies() = runBlocking {
         for(body in listOf("{}","not json","""{"status":"incomplete"}""","""{"status":"completed","output":[{"content":[{"type":"refusal","refusal":"no"}]}]}""")) {
             server.enqueue(MockResponse().setBody(body))

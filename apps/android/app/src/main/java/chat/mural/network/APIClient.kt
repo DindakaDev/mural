@@ -32,11 +32,15 @@ class APIClient private constructor(
     private val readCredential: () -> String?,
     private val client: OkHttpClient = defaultClient(),
     private val baseUrl: HttpUrl = API_BASE_URL,
+    private val requiresAuth: Boolean = true,
 ) : TeachingClient, LiveSessionProvider {
     constructor(credentials: CredentialStore) : this(credentials::read)
 
     internal constructor(key: String?, client: OkHttpClient, baseUrl: HttpUrl) :
         this({ key }, client, baseUrl)
+
+    internal constructor(key: String?, client: OkHttpClient, baseUrl: HttpUrl, requiresAuth: Boolean) :
+        this({ key }, client, baseUrl, requiresAuth)
 
     override suspend fun createLiveSession(request: LiveSessionRequest): LiveSessionConnection {
         val result = post("live/sessions", buildJsonObject {
@@ -59,13 +63,13 @@ class APIClient private constructor(
         if (!VALID_PATH.matches(path) || path.contains("..") || path.startsWith('/')) {
             throw APIException.InvalidResponse
         }
-        val key = readCredential() ?: throw APIException.MissingKey
-        val request = Request.Builder()
+        val key = if (requiresAuth) readCredential() ?: throw APIException.MissingKey else null
+        val requestBuilder = Request.Builder()
             .url(baseUrl.newBuilder().addPathSegments(path).build())
-            .header("Authorization", "Bearer $key")
             .header("Content-Type", JSON_MEDIA_TYPE.toString())
             .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
+        key?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        val request = requestBuilder.build()
 
         // Parse on OkHttp's worker while the continuation remains cancellable.
         // Cancellation closes a response even if the peer stalls halfway through its body.
@@ -188,6 +192,7 @@ class APIClient private constructor(
             .cache(null)
             .build()
 
+        fun local(baseUrl: HttpUrl): APIClient = APIClient({ null }, defaultClient(), baseUrl, requiresAuth = false)
 
     }
 }
