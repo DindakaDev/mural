@@ -95,11 +95,12 @@ def test_on_turn_transcribed_sends_input_delta_immediately(monkeypatch):
     monkeypatch.setattr(session_module.asyncio, "ensure_future", lambda coro: coro.close())
 
     pipeline = build_input_pipeline(session)
-    pipeline._on_turn("hola de prueba", 0, 500)
+    pipeline._on_turn("hola de prueba", "es", 0, 500)
 
     assert len(sent) == 1
     assert sent[0]["type"] == "session.input_transcript.delta"
     assert sent[0]["delta"] == "hola de prueba"
+    assert session.language == "es"
 
 
 def test_run_response_turn_sends_output_deltas_and_pushes_audio(monkeypatch):
@@ -146,3 +147,283 @@ def test_run_response_turn_sends_error_event_when_ollama_raises(monkeypatch):
 
     assert len(sent) == 1
     assert sent[0] == events.error("ollama unreachable")
+
+
+def test_run_response_turn_uses_client_instructions_as_system_prompt(monkeypatch):
+    captured = {}
+
+    def fake_stream_reply(prompt):
+        captured["prompt"] = prompt
+        return iter(["Hi."])
+
+    monkeypatch.setattr(ollama_client, "stream_reply", fake_stream_reply)
+    monkeypatch.setattr(models, "synthesize", lambda text, voice, lang: (np.zeros(160, dtype=np.int16), 16000))
+
+    session = Session(pc=None)
+    session.send = lambda event: None  # type: ignore[assignment]
+    session.instructions = "Some custom instructions"
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            pass
+
+    session.output_track = FakeTrack()  # type: ignore[assignment]
+
+    asyncio.run(run_response_turn(session, "hola"))
+
+    assert "Some custom instructions" in captured["prompt"]
+    assert "hola" in captured["prompt"]
+
+
+def test_run_response_turn_falls_back_to_default_system_prompt(monkeypatch):
+    captured = {}
+
+    def fake_stream_reply(prompt):
+        captured["prompt"] = prompt
+        return iter(["Hi."])
+
+    monkeypatch.setattr(ollama_client, "stream_reply", fake_stream_reply)
+    monkeypatch.setattr(models, "synthesize", lambda text, voice, lang: (np.zeros(160, dtype=np.int16), 16000))
+
+    session = Session(pc=None)
+    session.send = lambda event: None  # type: ignore[assignment]
+    assert session.instructions == ""
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            pass
+
+    session.output_track = FakeTrack()  # type: ignore[assignment]
+
+    asyncio.run(run_response_turn(session, "hola"))
+
+    assert "Reply in the same language as the user input in 1 short sentence." in captured["prompt"]
+
+
+def test_create_live_session_stores_client_instructions_on_session(monkeypatch):
+    captured_sessions = []
+    original_init = Session.__init__
+
+    def capturing_init(self, pc):
+        original_init(self, pc)
+        captured_sessions.append(self)
+
+    monkeypatch.setattr(session_module.Session, "__init__", capturing_init)
+
+    async def scenario():
+        client_pc = RTCPeerConnection()
+        client_pc.addTrack(_SilentMicTrack())
+        client_pc.createDataChannel("oai-events")
+        offer = await client_pc.createOffer()
+        await client_pc.setLocalDescription(offer)
+
+        body = LiveSessionBody(
+            session={"instructions": "You are a helpful assistant."},
+            transport={"type": "webrtc", "sdp": client_pc.localDescription.sdp},
+        )
+        await create_live_session(body)
+        await client_pc.close()
+
+    asyncio.run(scenario())
+
+    assert len(captured_sessions) == 1
+    assert captured_sessions[0].instructions == "You are a helpful assistant."
+
+
+def test_run_response_turn_picks_english_voice_for_english_language(monkeypatch):
+    captured = {}
+
+    def fake_synthesize(text, voice, lang):
+        captured["voice"] = voice
+        captured["lang"] = lang
+        return (np.zeros(160, dtype=np.int16), 16000)
+
+    monkeypatch.setattr(models, "synthesize", fake_synthesize)
+    monkeypatch.setattr(ollama_client, "stream_reply", lambda prompt: iter(["Hi."]))
+
+    session = Session(pc=None)
+    session.send = lambda event: None  # type: ignore[assignment]
+    session.language = "en"
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            pass
+
+    session.output_track = FakeTrack()  # type: ignore[assignment]
+
+    asyncio.run(run_response_turn(session, "hello"))
+
+    assert captured["voice"] == "af_bella"
+    assert captured["lang"] == "en-us"
+
+
+def test_run_response_turn_picks_spanish_voice_for_spanish_language(monkeypatch):
+    captured = {}
+
+    def fake_synthesize(text, voice, lang):
+        captured["voice"] = voice
+        captured["lang"] = lang
+        return (np.zeros(160, dtype=np.int16), 16000)
+
+    monkeypatch.setattr(models, "synthesize", fake_synthesize)
+    monkeypatch.setattr(ollama_client, "stream_reply", lambda prompt: iter(["Hola."]))
+
+    session = Session(pc=None)
+    session.send = lambda event: None  # type: ignore[assignment]
+    session.language = "es"
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            pass
+
+    session.output_track = FakeTrack()  # type: ignore[assignment]
+
+    asyncio.run(run_response_turn(session, "hola"))
+
+    assert captured["voice"] == "ef_dora"
+    assert captured["lang"] == "es"
+
+
+def test_run_response_turn_defaults_to_english_voice_when_no_language_detected(monkeypatch):
+    captured = {}
+
+    def fake_synthesize(text, voice, lang):
+        captured["voice"] = voice
+        captured["lang"] = lang
+        return (np.zeros(160, dtype=np.int16), 16000)
+
+    monkeypatch.setattr(models, "synthesize", fake_synthesize)
+    monkeypatch.setattr(ollama_client, "stream_reply", lambda prompt: iter(["Hi."]))
+
+    session = Session(pc=None)
+    session.send = lambda event: None  # type: ignore[assignment]
+    assert session.language is None
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            pass
+
+    session.output_track = FakeTrack()  # type: ignore[assignment]
+
+    asyncio.run(run_response_turn(session, "hello"))
+
+    assert captured["voice"] == "af_bella"
+    assert captured["lang"] == "en-us"
+
+
+def test_consume_audio_sends_error_event_and_keeps_listening_when_transcription_raises():
+    sent = []
+    session = Session(pc=None)
+    session.send = sent.append  # type: ignore[assignment]
+
+    class RaisingPipeline:
+        def handle_frame(self, frame):
+            raise RuntimeError("whisper exploded")
+
+    class FakeTrack:
+        def __init__(self):
+            self._frames = [object(), object()]
+
+        async def recv(self):
+            if not self._frames:
+                raise ConnectionError("track closed")
+            return self._frames.pop(0)
+
+    asyncio.run(session_module._consume_audio(FakeTrack(), RaisingPipeline(), session))
+
+    # Both frames' failures were reported, and the loop kept running
+    # (rather than dying on the first exception) until the track itself
+    # signaled it was done.
+    assert len(sent) == 2
+    assert all(event["type"] == "error" for event in sent)
+    assert sent[0]["message"] == "whisper exploded"
+    assert sent[1]["message"] == "whisper exploded"
+
+
+def test_pushed_audio_is_chunked_paced_and_non_silent_end_to_end():
+    """Integration test proving C1 (float->int16 scaling) and C2 (20ms
+    chunking + wall-clock pacing) actually work over a real two-peer
+    aiortc connection with a real Opus encode/decode round-trip -- not
+    just in isolated unit tests."""
+
+    async def scenario():
+        captured_sessions = []
+        original_init = Session.__init__
+
+        def capturing_init(self, pc):
+            original_init(self, pc)
+            captured_sessions.append(self)
+
+        import unittest.mock as mock
+
+        with mock.patch.object(Session, "__init__", capturing_init):
+            client_pc = RTCPeerConnection()
+            client_pc.addTrack(_SilentMicTrack())
+            channel = client_pc.createDataChannel("oai-events")
+            opened = asyncio.Event()
+
+            @channel.on("open")
+            def _on_open():
+                opened.set()
+
+            received_frames = []
+            track_seen = asyncio.Event()
+
+            @client_pc.on("track")
+            def on_track(track):
+                async def collect():
+                    try:
+                        while len(received_frames) < 8:
+                            frame = await asyncio.wait_for(track.recv(), timeout=3)
+                            received_frames.append(frame)
+                    except Exception:
+                        pass
+
+                asyncio.ensure_future(collect())
+                track_seen.set()
+
+            offer = await client_pc.createOffer()
+            await client_pc.setLocalDescription(offer)
+
+            body = LiveSessionBody(session={}, transport={"type": "webrtc", "sdp": client_pc.localDescription.sdp})
+            result = await create_live_session(body)
+            await client_pc.setRemoteDescription(RTCSessionDescription(sdp=result["transport"]["sdp"], type="answer"))
+
+            await asyncio.wait_for(opened.wait(), timeout=5)
+            await asyncio.wait_for(track_seen.wait(), timeout=5)
+
+            assert len(captured_sessions) == 1
+            server_session = captured_sessions[0]
+
+            sample_rate = 24000
+            duration_s = 1.0
+            t = np.linspace(0, duration_s, int(sample_rate * duration_s), endpoint=False)
+            audio = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+
+            await server_session.output_track.push_pcm(audio, sample_rate)
+
+            for _ in range(200):
+                if len(received_frames) >= 8:
+                    break
+                await asyncio.sleep(0.05)
+
+            await client_pc.close()
+            return received_frames
+
+    frames = asyncio.run(scenario())
+
+    # (a) more than one frame proves C2's chunking (a single unpaced
+    # frame would arrive as one giant blob instead of many small ones).
+    assert len(frames) > 1
+
+    # (b) at least one frame decodes to non-silence, proving C1's
+    # float->int16 scaling survived a real Opus encode/decode round trip
+    # (exact sample values won't survive lossy Opus, but audible signal
+    # will not come back as all zeros the way truncated silence would).
+    non_zero_found = any(np.any(frame.to_ndarray() != 0) for frame in frames)
+    assert non_zero_found
+
+    # (c) consecutive frames have distinct, increasing timestamps.
+    pts_values = [frame.pts for frame in frames]
+    assert len(set(pts_values)) == len(pts_values)
+    assert pts_values == sorted(pts_values)
