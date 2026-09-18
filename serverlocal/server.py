@@ -5,10 +5,12 @@ from fastapi import FastAPI
 import uvicorn
 
 from . import models
-from .session import router
+from .responses_api import router as responses_router
+from .session import router as session_router
 
 app = FastAPI()
-app.include_router(router)
+app.include_router(session_router)
+app.include_router(responses_router)
 
 
 @app.on_event("startup")
