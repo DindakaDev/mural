@@ -21,6 +21,7 @@
     <string name="error_missing_key">Añade tu clave de OpenAI en Ajustes para empezar.</string>
     <string name="error_missing_local_server">Añade la dirección de tu servidor local en Ajustes para empezar.</string>
     <string name="error_invalid_local_server">Ingresa una dirección válida, como 192.168.1.20:8000.</string>
+    <string name="error_typed_start_local_server">Inicia una conversación de voz antes de enviar una respuesta escrita en modo local.</string>
     <string name="error_key_invalid">Introduce una clave de la API de OpenAI válida.</string>
     <string name="error_key_save">No se pudo guardar la clave de forma segura en este dispositivo.</string>
     <string name="error_key_save_failed">No se pudo guardar la clave.</string>

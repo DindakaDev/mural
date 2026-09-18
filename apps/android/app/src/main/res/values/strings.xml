@@ -21,6 +21,7 @@
     <string name="error_missing_key">Add your OpenAI key in Settings to begin.</string>
     <string name="error_missing_local_server">Add your local server address in Settings to begin.</string>
     <string name="error_invalid_local_server">Enter a valid address, like 192.168.1.20:8000.</string>
+    <string name="error_typed_start_local_server">Start a voice conversation before sending a typed reply in local mode.</string>
     <string name="error_key_invalid">Enter a valid OpenAI API key.</string>
     <string name="error_key_save">The key couldn\'t be saved securely on this device.</string>
     <string name="error_key_save_failed">The key couldn\'t be saved.</string>

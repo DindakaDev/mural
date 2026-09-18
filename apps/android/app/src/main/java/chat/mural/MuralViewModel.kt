@@ -957,6 +957,9 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
             if (conversationProvider == ConversationProvider.HOSTED_MINUTES) {
                 presentError(getApplication<Application>().getString(R.string.hosted_typed_start)); return
             }
+            if (conversationProvider == ConversationProvider.LOCAL_SERVER) {
+                presentError(getApplication<Application>().getString(R.string.error_typed_start_local_server)); return
+            }
             newSession(false); state = "active"; startDurationChecks()
         }
         val id = session!!.id; val token = generation
