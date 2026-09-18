@@ -340,6 +340,171 @@ def test_consume_audio_sends_error_event_and_keeps_listening_when_transcription_
     assert sent[1]["message"] == "whisper exploded"
 
 
+def test_cancel_current_response_cancels_task_and_clears_track():
+    session = Session(pc=None)
+
+    class FakeTrack:
+        def __init__(self):
+            self.cleared = False
+
+        def clear(self):
+            self.cleared = True
+
+    session.output_track = FakeTrack()
+
+    async def scenario():
+        async def never_finishes():
+            await asyncio.sleep(3600)
+
+        session.response_task = asyncio.ensure_future(never_finishes())
+        await asyncio.sleep(0)  # let the task actually start
+        session_module._cancel_current_response(session)
+        await asyncio.sleep(0)
+        return session.response_task.cancelled(), session.output_track.cleared
+
+    cancelled, cleared = asyncio.run(scenario())
+    assert cancelled is True
+    assert cleared is True
+
+
+def test_cancel_current_response_is_a_no_op_when_nothing_is_running():
+    session = Session(pc=None)
+
+    class FakeTrack:
+        def __init__(self):
+            self.cleared = False
+
+        def clear(self):
+            self.cleared = True
+
+    session.output_track = FakeTrack()
+    session_module._cancel_current_response(session)  # must not raise
+    assert session.output_track.cleared is True
+
+
+def test_consume_audio_cancels_response_task_on_sustained_barge_in_speech(monkeypatch):
+    session = Session(pc=None)
+    sent = []
+    session.send = sent.append
+
+    class FakeTrack:
+        def __init__(self):
+            self.cleared = False
+
+        def clear(self):
+            self.cleared = True
+
+    session.output_track = FakeTrack()
+
+    async def never_finishes():
+        await asyncio.sleep(3600)
+
+    async def scenario():
+        session.response_task = asyncio.ensure_future(never_finishes())
+        await asyncio.sleep(0)
+
+        class FakeInputPipeline:
+            def __init__(self):
+                self._calls = 0
+
+            def handle_frame(self, frame):
+                self._calls += 1
+
+            def current_speech_run_ms(self):
+                # First frame: below threshold. Second: at/above 200ms.
+                return 100 if self._calls == 1 else 220
+
+        class FakeTrackSource:
+            def __init__(self):
+                self._frames = [object(), object()]
+
+            async def recv(self):
+                if not self._frames:
+                    raise RuntimeError("no more frames")
+                return self._frames.pop(0)
+
+        await session_module._consume_audio(FakeTrackSource(), FakeInputPipeline(), session)
+        return session.response_task.cancelled(), session.output_track.cleared
+
+    cancelled, cleared = asyncio.run(scenario())
+    assert cancelled is True
+    assert cleared is True
+
+
+def test_on_turn_transcribed_cancels_any_still_running_response_before_starting_a_new_one(monkeypatch):
+    monkeypatch.setattr(session_module.asyncio, "ensure_future", lambda coro: coro.close())
+    session = Session(pc=None)
+    sent = []
+    session.send = sent.append
+    cancelled = {"value": False}
+
+    class FakeTask:
+        def done(self):
+            return False
+
+        def cancel(self):
+            cancelled["value"] = True
+
+    class FakeTrack:
+        def clear(self):
+            pass
+
+    session.response_task = FakeTask()
+    session.output_track = FakeTrack()
+
+    pipeline = build_input_pipeline(session)
+    pipeline._on_turn("hola de nuevo", "es", 0, 500)
+
+    assert cancelled["value"] is True
+
+
+def test_run_response_turn_strips_delegation_marker_and_emits_delegation_created(monkeypatch):
+    monkeypatch.setattr(ollama_client, "stream_reply", lambda prompt: iter(["[[SEARCH: capital of Peru]]"]))
+    sent = []
+    session = Session(pc=None)
+    session.send = sent.append
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            pass
+
+    session.output_track = FakeTrack()
+
+    asyncio.run(run_response_turn(session, "what's the capital of Peru?"))
+
+    delegation_events = [e for e in sent if e["type"] == "session.delegation.created"]
+    assert len(delegation_events) == 1
+    delegation_id = delegation_events[0]["delegation"]["id"]
+    assert delegation_id in session.pending_delegations
+    # The marker itself must never be sent as spoken output.
+    assert not any(e["type"] == "session.output_transcript.delta" for e in sent)
+
+
+def test_speak_commentary_synthesizes_and_sends_output_delta():
+    monkeypatch_models = models.synthesize
+    try:
+        import numpy as np
+
+        models.synthesize = lambda text, voice, lang: (np.zeros(1600, dtype=np.int16), 16000)
+        session = Session(pc=None)
+        sent = []
+        session.send = sent.append
+
+        class FakeTrack:
+            async def push_pcm(self, samples, sample_rate):
+                pass
+
+        session.output_track = FakeTrack()
+
+        asyncio.run(session_module.speak_commentary(session, "Lima is the capital of Peru."))
+
+        deltas = [e for e in sent if e["type"] == "session.output_transcript.delta"]
+        assert len(deltas) == 1
+        assert deltas[0]["delta"] == "Lima is the capital of Peru."
+    finally:
+        models.synthesize = monkeypatch_models
+
+
 def test_pushed_audio_is_chunked_paced_and_non_silent_end_to_end():
     """Integration test proving C1 (float->int16 scaling) and C2 (20ms
     chunking + wall-clock pacing) actually work over a real two-peer
