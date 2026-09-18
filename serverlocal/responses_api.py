@@ -37,7 +37,7 @@ def _wants_search(body: ResponsesBody) -> bool:
 
 
 @router.post("/responses")
-async def responses_route(body: ResponsesBody) -> dict:
+def responses_route(body: ResponsesBody) -> dict:
     user_text = _extract_user_text(body.input)
     schema = _extract_schema(body)
     want_search = _wants_search(body)

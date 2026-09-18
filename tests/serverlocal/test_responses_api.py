@@ -14,9 +14,7 @@ def test_responses_route_builds_decodeteachingresponse_compatible_shape(monkeypa
         input=[{"role": "user", "content": "hola"}],
     )
 
-    import asyncio
-
-    result = asyncio.run(responses_api.responses_route(body))
+    result = responses_api.responses_route(body)
 
     assert result["status"] == "completed"
     assert result["usage"] == {"input_tokens": 12, "output_tokens": 7}
@@ -43,9 +41,7 @@ def test_responses_route_extracts_schema_and_search_flag(monkeypatch):
         max_tool_calls=1,
     )
 
-    import asyncio
-
-    asyncio.run(responses_api.responses_route(body))
+    responses_api.responses_route(body)
 
     fake_generate.assert_called_once_with("", "q", schema, True, "qwen2.5:7b")
 
@@ -60,9 +56,7 @@ def test_responses_route_includes_web_search_call_marker_and_citations_when_sear
 
     body = responses_api.ResponsesBody(model="qwen2.5:7b", instructions="", input=[{"role": "user", "content": "q"}])
 
-    import asyncio
-
-    result = asyncio.run(responses_api.responses_route(body))
+    result = responses_api.responses_route(body)
 
     assert result["output"][0] == {"type": "web_search_call"}
     annotations = result["output"][1]["content"][0]["annotations"]
@@ -79,8 +73,6 @@ def test_responses_route_joins_multiple_string_input_items(monkeypatch):
         input=[{"role": "user", "content": "first"}, {"role": "user", "content": "second"}],
     )
 
-    import asyncio
-
-    asyncio.run(responses_api.responses_route(body))
+    responses_api.responses_route(body)
 
     fake_generate.assert_called_once_with("", "first\nsecond", None, False, "qwen2.5:7b")
