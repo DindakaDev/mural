@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable, Iterable, Iterator
 import numpy as np
 
 SENTENCE_END = re.compile(r"[.!?\n]")
+_NO_MORE_SENTENCES = object()
 
 
 def chunk_sentences(token_stream: Iterable[str]) -> Iterator[str]:
@@ -48,13 +49,34 @@ class ResponsePipeline:
     async def run(self, prompt: str) -> str:
         """Runs one full turn's reply and returns the full reply text.
         A caller may wrap this in an asyncio.Task and cancel it for
-        barge-in (added in a later plan)."""
+        barge-in.
+
+        stream_reply_fn/synthesize_fn are blocking, synchronous calls
+        (real HTTP streaming reads, real ONNX inference) -- both are run
+        via asyncio.to_thread so the event loop stays free for the
+        rest of the process (in particular, real-time audio consumption
+        via _consume_audio, which is what lets barge-in actually notice
+        the user talking) for the real duration of each sentence's
+        generation and synthesis, not just at a single scheduling point
+        between sentences.
+
+        Cancelling the task this coroutine runs in only takes effect at
+        one of these await points (matching the spec's "checks between
+        sentence-synthesis steps" design) -- it cannot interrupt a
+        single blocking to_thread call already in flight. That call's
+        worker thread keeps running to completion in the background
+        even after cancellation; its result is simply never awaited or
+        used, since the caller already treats the turn as cancelled and
+        clears any queued audio."""
         elapsed_ms = 0
         parts: list[str] = []
-        for sentence in chunk_sentences(self._stream_reply(prompt)):
-            await asyncio.sleep(0)
+        sentences = chunk_sentences(self._stream_reply(prompt))
+        while True:
+            sentence = await asyncio.to_thread(next, sentences, _NO_MORE_SENTENCES)
+            if sentence is _NO_MORE_SENTENCES:
+                break
             parts.append(sentence)
-            samples, sample_rate = self._synthesize(sentence)
+            samples, sample_rate = await asyncio.to_thread(self._synthesize, sentence)
             await self._push_audio(samples, sample_rate)
             duration_ms = int(len(samples) / sample_rate * 1000)
             self._on_delta(sentence, elapsed_ms, elapsed_ms + duration_ms)
