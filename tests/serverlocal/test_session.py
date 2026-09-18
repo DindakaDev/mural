@@ -201,6 +201,33 @@ def test_run_response_turn_falls_back_to_default_system_prompt(monkeypatch):
     assert "Reply in the same language as the user input in 1 short sentence." in captured["prompt"]
 
 
+def test_pending_context_is_included_in_the_prompt_and_then_cleared(monkeypatch):
+    captured = {}
+
+    def fake_stream_reply(prompt):
+        captured["prompt"] = prompt
+        return iter(["ok."])
+
+    monkeypatch.setattr(ollama_client, "stream_reply", fake_stream_reply)
+    monkeypatch.setattr(models, "synthesize", lambda text, voice, lang: (np.zeros(160, dtype=np.int16), 16000))
+
+    session = Session(pc=None)
+    session.pending_context = ["Discuss only fruit today."]
+    sent = []
+    session.send = sent.append
+
+    class FakeTrack:
+        async def push_pcm(self, samples, sample_rate):
+            pass
+
+    session.output_track = FakeTrack()
+
+    asyncio.run(run_response_turn(session, "hello"))
+
+    assert "Discuss only fruit today." in captured["prompt"]
+    assert session.pending_context == []
+
+
 def test_create_live_session_stores_client_instructions_on_session(monkeypatch):
     captured_sessions = []
     original_init = Session.__init__
