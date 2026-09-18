@@ -55,6 +55,16 @@ class APIClientTest {
         val request = server.takeRequest()
         assertNull(request.getHeader("Authorization"))
     }
+    @Test fun factoryProducesAWorkingAuthOptionalClientAgainstAParsedAddress() = runBlocking {
+        val url = parseLocalServerUrl("${server.hostName}:${server.port}")!!
+        val local = APIClient.local(url)
+        server.enqueue(MockResponse().setBody("""{"session":{"id":"local-2"},"transport":{"type":"webrtc","sdp":"v=0\\r\\n"}}"""))
+        val provider: LiveSessionProvider = local
+        provider.createLiveSession(LiveSessionRequest("v=0", "Teaching policy"))
+        val request = server.takeRequest()
+        assertEquals("/live/sessions", request.path)
+        assertNull(request.getHeader("Authorization"))
+    }
     @Test fun incompleteRefusalAndMalformedResultsDoNotBecomeReplies() = runBlocking {
         for(body in listOf("{}","not json","""{"status":"incomplete"}""","""{"status":"completed","output":[{"content":[{"type":"refusal","refusal":"no"}]}]}""")) {
             server.enqueue(MockResponse().setBody(body))

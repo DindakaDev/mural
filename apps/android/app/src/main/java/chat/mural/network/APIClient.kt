@@ -193,6 +193,5 @@ class APIClient private constructor(
             .build()
 
         fun local(baseUrl: HttpUrl): APIClient = APIClient({ null }, defaultClient(), baseUrl, requiresAuth = false)
-
     }
 }
