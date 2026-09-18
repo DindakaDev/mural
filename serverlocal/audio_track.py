@@ -54,6 +54,9 @@ class OutputAudioTrack(MediaStreamTrack):
         while not self._queue.empty():
             self._queue.get_nowait()
 
+    def has_queued_audio(self) -> bool:
+        return not self._queue.empty()
+
     async def recv(self) -> av.AudioFrame:
         frame = await self._queue.get()
         frame.pts = self._timestamp

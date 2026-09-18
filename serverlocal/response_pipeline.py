@@ -1,3 +1,4 @@
+import asyncio
 import re
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 
@@ -51,6 +52,7 @@ class ResponsePipeline:
         elapsed_ms = 0
         parts: list[str] = []
         for sentence in chunk_sentences(self._stream_reply(prompt)):
+            await asyncio.sleep(0)
             parts.append(sentence)
             samples, sample_rate = self._synthesize(sentence)
             await self._push_audio(samples, sample_rate)

@@ -74,6 +74,8 @@ def build_input_pipeline(session: Session) -> InputPipeline:
         return models.transcribe(audio_np)
 
     def on_turn_transcribed(text: str, language: str, start_ms: int, end_ms: int) -> None:
+        if session.muted:
+            return
         session.language = language
         session.send(events.transcript_delta("input", text, start_ms, end_ms))
         _cancel_current_response(session)
@@ -142,6 +144,8 @@ def _handle_client_message(session: Session, message) -> None:
     try:
         event = json.loads(message)
     except (ValueError, TypeError):
+        return
+    if not isinstance(event, dict):
         return
     event_type = event.get("type")
     content = event.get("content")
@@ -252,9 +256,12 @@ async def _consume_audio(track, input_pipeline: InputPipeline, session: Session)
             # the session -- report it and keep listening.
             session.send(events.error(str(exc)))
             continue
+        response_active = (
+            session.response_task is not None and not session.response_task.done()
+        ) or session.output_track.has_queued_audio()
         if (
-            session.response_task is not None
-            and not session.response_task.done()
+            response_active
+            and not session.muted
             and input_pipeline.current_speech_run_ms() >= BARGE_IN_THRESHOLD_MS
         ):
             _cancel_current_response(session)
