@@ -1,7 +1,7 @@
 import re
 from collections.abc import Callable, Iterable, Iterator
 
-SEARCH_MARKER = re.compile(r"\[\[SEARCH:\s*(.*?)\]\]")
+SEARCH_MARKER = re.compile(r"\[\[SEARCH:\s*(.*?)\]\]", re.DOTALL)
 
 
 def strip_delegation_markers(token_stream: Iterable[str], on_delegation: Callable[[str], None]) -> Iterator[str]:

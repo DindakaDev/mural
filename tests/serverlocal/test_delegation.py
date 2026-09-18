@@ -35,3 +35,10 @@ def test_withholds_a_possible_partial_marker_until_the_stream_ends():
     # is flushed as plain text rather than silently dropped.
     assert "".join(remainder) == "[[SEA"
     assert calls == []
+
+
+def test_extracts_a_marker_containing_an_embedded_newline():
+    calls = []
+    result = list(strip_delegation_markers(["[[SEARCH: multi\nline query]]"], calls.append))
+    assert "".join(result) == ""
+    assert calls == ["multi\nline query"]
