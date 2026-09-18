@@ -31,6 +31,23 @@ class LiveSessionBody(BaseModel):
     transport: dict
 
 
+def _log(session_id: str, direction: str, event: dict) -> None:
+    short_id = session_id[:8]
+    kind = event.get("type", "?")
+    detail = ""
+    if "delta" in event:
+        detail = f" {event['delta']!r}"[:80]
+    elif "content" in event:
+        detail = f" {event['content']!r}"[:80]
+    elif "delegation" in event:
+        detail = f" {event['delegation']}"
+    elif "usage" in event:
+        detail = f" {event['usage']}"
+    elif "message" in event:
+        detail = f" {event['message']!r}"[:80]
+    print(f"[{short_id}] {direction} {kind}{detail}")
+
+
 class Session:
     def __init__(self, pc: RTCPeerConnection | None):
         self.id = str(uuid.uuid4())
@@ -47,6 +64,7 @@ class Session:
         self.usage_task: asyncio.Task | None = None
 
     def send(self, event: dict) -> None:
+        _log(self.id, "->", event)
         if self.channel is not None and self.channel.readyState == "open":
             self.channel.send(json.dumps(event))
 
@@ -147,6 +165,7 @@ def _handle_client_message(session: Session, message) -> None:
         return
     if not isinstance(event, dict):
         return
+    _log(session.id, "<-", event)
     event_type = event.get("type")
     content = event.get("content")
 
@@ -203,6 +222,7 @@ async def create_live_session(body: LiveSessionBody) -> dict:
     session = Session(pc)
     session.instructions = body.session.get("instructions", "") or ""
     _active_sessions[session.id] = session
+    print(f"[{session.id[:8]}] new session, instructions={session.instructions!r}")
     pc.addTrack(session.output_track)
     input_pipeline = build_input_pipeline(session)
 
