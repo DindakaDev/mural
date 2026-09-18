@@ -100,6 +100,7 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
     private var accessJob: Job? = null
     private val hostedBindings = HostedConversationBindings(viewModelScope)
     private var hostedSessionIDs = emptySet<String>()
+    private var localSessionIDs = emptySet<String>()
     private var pendingHostedOwnerID: String? = null
     /** Reauthentication may renew this account only; another account cannot replace an unresolved owner. */
     suspend fun pendingMemberForSignIn(): String? {
@@ -446,6 +447,7 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         if (localID != null && localID in hostedSessionIDs) {
             return hostedBindings.respond(localID, purpose, logicalID, instructions, input, schema, search)
         }
+        if (localID != null && localID in localSessionIDs) throw HostedFailure.Unavailable
         if (localID == null && (conversationProvider == ConversationProvider.HOSTED_MINUTES || conversationProvider == ConversationProvider.LOCAL_SERVER)) throw HostedFailure.Unavailable
         return api.respond(instructions, input, schema, search, purpose)
     }
@@ -577,23 +579,34 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
         catch (e: Exception) { presentError(e, R.string.error_key_delete_failed) }
         finally { hasKey = credentials.hasKey }
     }
-    fun saveLocalServerAddress(address: String) {
-        if (isRunning) return
+    fun saveLocalServerAddress(address: String): Boolean {
+        if (isRunning) return false
         val trimmed = address.trim()
-        if (parseLocalServerUrl(trimmed) == null) {
-            notice = getApplication<Application>().getString(R.string.error_invalid_local_server); return
+        val url = parseLocalServerUrl(trimmed)
+        if (url == null) {
+            notice = getApplication<Application>().getString(R.string.error_invalid_local_server); return false
         }
-        localServerStore.save(trimmed)
-        localServerAddress = trimmed
-        hasLocalServer = true
-        selectConversationProvider(ConversationProvider.LOCAL_SERVER)
-        notice = getApplication<Application>().getString(R.string.notice_local_server_saved)
+        return try {
+            localServerStore.save(trimmed)
+            localServerAddress = trimmed
+            hasLocalServer = true
+            selectConversationProvider(ConversationProvider.LOCAL_SERVER)
+            notice = getApplication<Application>().getString(R.string.notice_local_server_saved)
+            true
+        } catch (e: Exception) {
+            presentError(e, R.string.error_key_save_failed); false
+        }
     }
     fun removeLocalServerAddress() {
         if (isRunning) return
-        localServerStore.clear()
-        hasLocalServer = false
-        localServerAddress = ""
+        try {
+            localServerStore.clear()
+            hasLocalServer = false
+            localServerAddress = ""
+            if (conversationProvider == ConversationProvider.LOCAL_SERVER) {
+                selectConversationProvider(if (hasKey) ConversationProvider.PERSONAL_KEY else ConversationProvider.HOSTED_MINUTES)
+            }
+        } catch (e: Exception) { presentError(e, R.string.error_key_delete_failed) }
     }
     fun updatePreferences(preferences: Preferences) {
         if (isRunning || !storageReady) return
@@ -682,7 +695,10 @@ class MuralViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val provider: LiveSessionProvider = when (choice) {
                     ConversationProvider.PERSONAL_KEY -> api
-                    ConversationProvider.LOCAL_SERVER -> localApiClient()
+                    ConversationProvider.LOCAL_SERVER -> {
+                        localSessionIDs = localSessionIDs + id
+                        localApiClient()
+                    }
                     ConversationProvider.HOSTED_MINUTES -> {
                         val owner = requireHostedOwner()
                         if (selectedAccount.busy || owner.accountID != hostedReadiness.accountID) throw HostedFailure.SignInRequired
