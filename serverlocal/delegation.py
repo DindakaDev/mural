@@ -32,8 +32,12 @@ def strip_delegation_markers(token_stream: Iterable[str], on_delegation: Callabl
 def _safe_flush_point(buffer: str) -> int:
     """How much of buffer can be safely yielded without risking splitting
     a still-forming marker. Withholds everything from the last "[[" if it
-    hasn't yet resolved into a confirmed non-marker or a completed one."""
+    hasn't yet resolved into a confirmed non-marker or a completed one --
+    and withholds a single trailing "[" too, since the next token could
+    complete it into "[[" and start a new marker."""
     idx = buffer.rfind("[[")
-    if idx == -1:
-        return len(buffer)
-    return idx
+    if idx != -1:
+        return idx
+    if buffer.endswith("["):
+        return len(buffer) - 1
+    return len(buffer)

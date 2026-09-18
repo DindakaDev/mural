@@ -42,3 +42,11 @@ def test_extracts_a_marker_containing_an_embedded_newline():
     result = list(strip_delegation_markers(["[[SEARCH: multi\nline query]]"], calls.append))
     assert "".join(result) == ""
     assert calls == ["multi\nline query"]
+
+
+def test_extracts_a_marker_when_the_two_opening_brackets_are_split_across_tokens():
+    calls = []
+    tokens = ["Sure ", "[", "[SEARCH: capital of Peru]]", " ok"]
+    result = list(strip_delegation_markers(iter(tokens), calls.append))
+    assert "".join(result) == "Sure  ok"
+    assert calls == ["capital of Peru"]
