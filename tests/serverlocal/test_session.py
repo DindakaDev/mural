@@ -1,5 +1,6 @@
 import asyncio
 import fractions
+import json
 
 import av
 import numpy as np
@@ -592,3 +593,110 @@ def test_pushed_audio_is_chunked_paced_and_non_silent_end_to_end():
     pts_values = [frame.pts for frame in frames]
     assert len(set(pts_values)) == len(pts_values)
     assert pts_values == sorted(pts_values)
+
+
+def test_handle_instructions_and_thinking_append_queue_pending_context():
+    session = Session(pc=None)
+    session_module._handle_client_message(session, json.dumps({
+        "type": "session.instructions.append", "content": "Discuss only fruit."
+    }))
+    session_module._handle_client_message(session, json.dumps({
+        "type": "session.thinking.append", "content": "Learner is at level 2."
+    }))
+    assert session.pending_context == ["Discuss only fruit.", "Learner is at level 2."]
+
+
+def test_handle_mute_and_unmute_toggle_session_muted():
+    session = Session(pc=None)
+    assert session.muted is False
+    session_module._handle_client_message(session, json.dumps({"type": "session.input_audio.mute"}))
+    assert session.muted is True
+    session_module._handle_client_message(session, json.dumps({"type": "session.input_audio.unmute"}))
+    assert session.muted is False
+
+
+def test_handle_commentary_append_cancels_current_response_and_speaks_it(monkeypatch):
+    session = Session(pc=None)
+    session.pending_delegations.add("deleg-1")
+    scheduled = {}
+    monkeypatch.setattr(session_module.asyncio, "ensure_future", lambda coro: scheduled.setdefault("coro", coro) or coro.close())
+
+    session_module._handle_client_message(session, json.dumps({
+        "type": "session.commentary.append", "content": "Here's the answer.", "delegation_id": "deleg-1"
+    }))
+
+    assert "deleg-1" not in session.pending_delegations
+    assert "coro" in scheduled
+
+
+def test_handle_unknown_message_type_is_ignored_without_raising():
+    session = Session(pc=None)
+    session_module._handle_client_message(session, json.dumps({"type": "session.something.unrecognized"}))
+    session_module._handle_client_message(session, "not even json")
+    session_module._handle_client_message(session, 12345)  # not a string at all
+
+
+def test_teardown_session_sends_closed_event_cancels_tasks_and_removes_from_registry():
+    session = Session(pc=None)
+    sent = []
+    session.send = sent.append
+    session_module._active_sessions[session.id] = session
+
+    class FakeTrack:
+        def clear(self):
+            pass
+
+    session.output_track = FakeTrack()
+
+    async def never_finishes():
+        await asyncio.sleep(3600)
+
+    async def scenario():
+        session.response_task = asyncio.ensure_future(never_finishes())
+        session.usage_task = asyncio.ensure_future(never_finishes())
+        await asyncio.sleep(0)
+        await session_module._teardown_session(session, send_closed_event=True)
+        return session.response_task.cancelled(), session.usage_task.cancelled()
+
+    response_cancelled, usage_cancelled = asyncio.run(scenario())
+    assert response_cancelled is True
+    assert usage_cancelled is True
+    assert session.id not in session_module._active_sessions
+    closed_events = [e for e in sent if e["type"] == "session.closed"]
+    assert len(closed_events) == 1
+    assert closed_events[0]["usage"]["seconds"] >= 0
+
+
+def test_teardown_session_without_closed_event_sends_nothing():
+    session = Session(pc=None)
+    sent = []
+    session.send = sent.append
+
+    class FakeTrack:
+        def clear(self):
+            pass
+
+    session.output_track = FakeTrack()
+
+    asyncio.run(session_module._teardown_session(session, send_closed_event=False))
+    assert sent == []
+
+
+def test_broadcast_usage_sends_periodic_updates_until_cancelled(monkeypatch):
+    session = Session(pc=None)
+    sent = []
+    session.send = sent.append
+    monkeypatch.setattr(session_module, "USAGE_BROADCAST_INTERVAL_SECONDS", 0.01)
+
+    async def scenario():
+        task = asyncio.ensure_future(session_module._broadcast_usage(session))
+        await asyncio.sleep(0.035)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(scenario())
+    usage_events = [e for e in sent if e["type"] == "session.usage.updated"]
+    assert len(usage_events) >= 2

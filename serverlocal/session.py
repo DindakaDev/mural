@@ -17,10 +17,13 @@ router = APIRouter()
 
 DEFAULT_SYSTEM_PROMPT = "Reply in the same language as the user input in 1 short sentence."
 BARGE_IN_THRESHOLD_MS = 200
+USAGE_BROADCAST_INTERVAL_SECONDS = 5
 SEARCH_MARKER_INSTRUCTION = (
     "\nIf you need current information you don't already know, reply with "
     "exactly [[SEARCH: <query>]] and nothing else -- no other text."
 )
+
+_active_sessions: dict[str, "Session"] = {}
 
 
 class LiveSessionBody(BaseModel):
@@ -39,6 +42,9 @@ class Session:
         self.language: str | None = None
         self.response_task: asyncio.Task | None = None
         self.pending_delegations: set[str] = set()
+        self.pending_context: list[str] = []
+        self.muted: bool = False
+        self.usage_task: asyncio.Task | None = None
 
     def send(self, event: dict) -> None:
         if self.channel is not None and self.channel.readyState == "open":
@@ -78,7 +84,11 @@ def build_input_pipeline(session: Session) -> InputPipeline:
 
 async def run_response_turn(session: Session, user_text: str) -> None:
     system_prompt = session.instructions if session.instructions else DEFAULT_SYSTEM_PROMPT
-    prompt = f"{system_prompt}{SEARCH_MARKER_INSTRUCTION}\nUser: {user_text}\nAssistant:"
+    context_note = ""
+    if session.pending_context:
+        context_note = "\n" + "\n".join(session.pending_context)
+        session.pending_context = []
+    prompt = f"{system_prompt}{SEARCH_MARKER_INSTRUCTION}{context_note}\nUser: {user_text}\nAssistant:"
 
     def stream_reply_fn(p: str):
         def on_delegation(query: str) -> None:
@@ -126,11 +136,69 @@ async def speak_commentary(session: Session, text: str) -> None:
         session.send(events.error(str(exc)))
 
 
+def _handle_client_message(session: Session, message) -> None:
+    if not isinstance(message, str):
+        return
+    try:
+        event = json.loads(message)
+    except (ValueError, TypeError):
+        return
+    event_type = event.get("type")
+    content = event.get("content")
+
+    if event_type in ("session.instructions.append", "session.thinking.append"):
+        if isinstance(content, str) and content:
+            session.pending_context.append(content)
+    elif event_type == "session.commentary.append":
+        if isinstance(content, str) and content:
+            delegation_id = event.get("delegation_id")
+            if delegation_id in session.pending_delegations:
+                session.pending_delegations.discard(delegation_id)
+            _cancel_current_response(session)
+            session.response_task = asyncio.ensure_future(speak_commentary(session, content))
+    elif event_type == "session.input_audio.mute":
+        session.muted = True
+    elif event_type == "session.input_audio.unmute":
+        session.muted = False
+    elif event_type == "session.close":
+        asyncio.ensure_future(_teardown_session(session, send_closed_event=True))
+
+
+async def _teardown_session(session: Session, send_closed_event: bool) -> None:
+    _cancel_current_response(session)
+    if session.usage_task is not None:
+        session.usage_task.cancel()
+    # Yield once so the cancellations scheduled above actually land (a
+    # Task's cancelled() doesn't flip to True until the event loop gets
+    # a chance to deliver CancelledError into it) before this function
+    # returns and callers check response_task/usage_task.cancelled().
+    # Same asyncio timing issue as _consume_audio's barge-in branch.
+    await asyncio.sleep(0)
+    _active_sessions.pop(session.id, None)
+    if send_closed_event:
+        session.send(events.usage_updated(session.usage_seconds(), closed=True))
+    if session.pc is not None:
+        try:
+            await session.pc.close()
+        except Exception:
+            pass
+
+
+async def _broadcast_usage(session: Session) -> None:
+    try:
+        while True:
+            await asyncio.sleep(USAGE_BROADCAST_INTERVAL_SECONDS)
+            session.send(events.usage_updated(session.usage_seconds()))
+    except asyncio.CancelledError:
+        pass
+
+
 async def create_live_session(body: LiveSessionBody) -> dict:
     offer_sdp = body.transport["sdp"]
     pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=[]))
     session = Session(pc)
     session.instructions = body.session.get("instructions", "") or ""
+    _active_sessions[session.id] = session
     pc.addTrack(session.output_track)
     input_pipeline = build_input_pipeline(session)
 
@@ -140,10 +208,21 @@ async def create_live_session(body: LiveSessionBody) -> dict:
         session.send(events.session_created(session.id))
         session.send(events.session_started())
 
+        @channel.on("message")
+        def on_message(message):
+            _handle_client_message(session, message)
+
+        session.usage_task = asyncio.ensure_future(_broadcast_usage(session))
+
     @pc.on("track")
     def on_track(track):
         if track.kind == "audio":
             asyncio.ensure_future(_consume_audio(track, input_pipeline, session))
+
+    @pc.on("connectionstatechange")
+    def on_connectionstatechange():
+        if pc.connectionState in ("failed", "closed"):
+            asyncio.ensure_future(_teardown_session(session, send_closed_event=False))
 
     await pc.setRemoteDescription(RTCSessionDescription(sdp=offer_sdp, type="offer"))
     answer = await pc.createAnswer()
