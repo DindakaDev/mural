@@ -145,23 +145,23 @@ fun SettingsScreen(vm: MuralViewModel, onExport: () -> Unit, onImport: () -> Uni
                             }
                             Text(stringResource(R.string.settings_key_owner_footer), style = MaterialTheme.typography.bodySmall,
                                 color = MuralColors.Secondary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp))
+                            SettingsDivider()
+                            Text(stringResource(R.string.settings_local_server_title), style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
+                            Text(stringResource(R.string.settings_local_server_footer), style = MaterialTheme.typography.bodySmall,
+                                color = MuralColors.Secondary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                            SettingsRow(stringResource(if (vm.hasLocalServer) R.string.settings_local_server_change else R.string.settings_local_server_add),
+                                enabled = !vm.isRunning, tint = MuralColors.Secondary, chevron = true,
+                                modifier = Modifier.testTag("advanced-local-server"), onClick = { localServerDialog = true })
+                            if (vm.hasLocalServer) {
+                                SettingsDivider()
+                                Text(vm.localServerAddress, style = MaterialTheme.typography.bodySmall,
+                                    color = MuralColors.Secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                                SettingsDivider()
+                                SettingsRow(stringResource(R.string.settings_local_server_remove), enabled = !vm.isRunning,
+                                    tint = MuralColors.Red, onClick = { deleteLocalServer = true })
+                            }
                         }
-                    }
-                }
-            }
-            item {
-                SettingsGroup(stringResource(R.string.settings_local_server_title),
-                    stringResource(R.string.settings_local_server_footer)) {
-                    SettingsRow(stringResource(if (vm.hasLocalServer) R.string.settings_local_server_change else R.string.settings_local_server_add),
-                        enabled = !vm.isRunning, tint = MuralColors.Secondary, chevron = true,
-                        modifier = Modifier.testTag("advanced-local-server"), onClick = { localServerDialog = true })
-                    if (vm.hasLocalServer) {
-                        SettingsDivider()
-                        Text(vm.localServerAddress, style = MaterialTheme.typography.bodySmall,
-                            color = MuralColors.Secondary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
-                        SettingsDivider()
-                        SettingsRow(stringResource(R.string.settings_local_server_remove), enabled = !vm.isRunning,
-                            tint = MuralColors.Red, onClick = { deleteLocalServer = true })
                     }
                 }
             }
@@ -349,7 +349,7 @@ private fun LocalServerDialog(vm: MuralViewModel, onDismiss: () -> Unit) {
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     MuralTextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-                    Button(onClick = { vm.saveLocalServerAddress(address); onDismiss() }, enabled = address.isNotBlank()) { Text(stringResource(R.string.common_save)) }
+                    Button(onClick = { if (vm.saveLocalServerAddress(address)) onDismiss() }, enabled = address.isNotBlank()) { Text(stringResource(R.string.common_save)) }
                 }
             }
         }
