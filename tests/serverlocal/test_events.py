@@ -42,3 +42,11 @@ def test_usage_updated_closed_shape():
 
 def test_error_shape():
     assert events.error("bad thing") == {"type": "error", "message": "bad thing"}
+
+
+def test_delegation_created_shape():
+    event = events.delegation_created("abc-123")
+    assert event == {
+        "type": "session.delegation.created",
+        "delegation": {"target": "client", "id": "abc-123"},
+    }

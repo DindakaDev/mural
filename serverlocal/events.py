@@ -30,3 +30,7 @@ def usage_updated(seconds: float, closed: bool = False) -> dict:
 
 def error(message: str) -> dict:
     return {"type": "error", "message": message}
+
+
+def delegation_created(delegation_id: str) -> dict:
+    return {"type": "session.delegation.created", "delegation": {"target": "client", "id": delegation_id}}
