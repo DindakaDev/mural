@@ -16,3 +16,4 @@ requests
 aiortc
 av
 webrtcvad
+duckduckgo-search
