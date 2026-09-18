@@ -62,3 +62,17 @@ def test_handle_frame_skips_on_turn_callback_for_blank_transcription(monkeypatch
         pipeline.handle_frame(_silence_frame())
 
     assert turns == []
+
+
+def test_current_speech_run_ms_reflects_ongoing_speech(monkeypatch):
+    pattern = [True, True, False]
+    calls = iter(pattern)
+    monkeypatch.setattr(webrtcvad.Vad, "is_speech", lambda self, frame, rate: next(calls))
+
+    pipeline = InputPipeline(lambda a: ("x", "x"), lambda *a: None)
+    observed = []
+    for _ in range(len(pattern)):
+        pipeline.handle_frame(_silence_frame())
+        observed.append(pipeline.current_speech_run_ms())
+
+    assert observed == [20, 40, 0]

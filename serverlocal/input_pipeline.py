@@ -9,7 +9,8 @@ from .vad import TurnDetector
 class InputPipeline:
     """Consumes incoming client audio frames, detects turn boundaries via
     TurnDetector, and hands off each closed turn's audio to a
-    transcription callback."""
+    transcription callback. Also exposes the current in-progress speech
+    run length, for barge-in detection while the assistant is speaking."""
 
     def __init__(
         self,
@@ -40,3 +41,6 @@ class InputPipeline:
                 text = text.strip()
                 if text:
                     self._on_turn(text, language, start_ms, end_ms)
+
+    def current_speech_run_ms(self) -> int:
+        return self._detector.speech_run_ms

@@ -66,3 +66,27 @@ def test_buffers_partial_frames_across_feed_calls(monkeypatch):
     assert result_a is None
     assert result_b is None
     assert len(detector._buffer) == 0
+
+
+def test_speech_run_ms_accumulates_during_continuous_speech_and_resets_on_silence(monkeypatch):
+    pattern = [True, True, True, False, True, True]
+    calls = iter(pattern)
+    monkeypatch.setattr(webrtcvad.Vad, "is_speech", lambda self, frame, rate: next(calls))
+
+    detector = TurnDetector()
+    observed = []
+    for _ in range(len(pattern)):
+        detector.feed(_frame_bytes())
+        observed.append(detector.speech_run_ms)
+
+    assert observed == [20, 40, 60, 0, 20, 40]
+
+
+def test_speech_run_ms_stays_zero_during_pure_silence(monkeypatch):
+    monkeypatch.setattr(webrtcvad.Vad, "is_speech", lambda self, frame, rate: False)
+
+    detector = TurnDetector()
+    for _ in range(10):
+        detector.feed(_frame_bytes())
+
+    assert detector.speech_run_ms == 0

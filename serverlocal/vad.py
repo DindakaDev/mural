@@ -4,7 +4,8 @@ import webrtcvad
 class TurnDetector:
     """Buffers 16kHz mono 16-bit PCM, classifies 20ms frames with WebRTC
     VAD, and reports a closed turn once >=500ms of trailing silence
-    follows speech."""
+    follows speech. Also tracks speech_run_ms -- consecutive ms of speech
+    happening right now, independent of turn state -- for barge-in."""
 
     SAMPLE_RATE = 16000
     FRAME_MS = 20
@@ -17,6 +18,7 @@ class TurnDetector:
         self._turn_audio = bytearray()
         self._in_speech = False
         self._silence_ms = 0
+        self.speech_run_ms = 0
 
     def feed(self, pcm_bytes: bytes) -> bytes | None:
         self._buffer += pcm_bytes
@@ -26,15 +28,18 @@ class TurnDetector:
             del self._buffer[: self.FRAME_BYTES]
             is_speech = self._vad.is_speech(frame, self.SAMPLE_RATE)
             if is_speech:
+                self.speech_run_ms += self.FRAME_MS
                 self._in_speech = True
                 self._silence_ms = 0
                 self._turn_audio += frame
-            elif self._in_speech:
-                self._turn_audio += frame
-                self._silence_ms += self.FRAME_MS
-                if self._silence_ms >= self.SILENCE_MS_TO_CLOSE:
-                    closed_turn = bytes(self._turn_audio)
-                    self._turn_audio = bytearray()
-                    self._in_speech = False
-                    self._silence_ms = 0
+            else:
+                self.speech_run_ms = 0
+                if self._in_speech:
+                    self._turn_audio += frame
+                    self._silence_ms += self.FRAME_MS
+                    if self._silence_ms >= self.SILENCE_MS_TO_CLOSE:
+                        closed_turn = bytes(self._turn_audio)
+                        self._turn_audio = bytearray()
+                        self._in_speech = False
+                        self._silence_ms = 0
         return closed_turn
